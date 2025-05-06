@@ -104,6 +104,7 @@ executable tinyapl
                     , exceptions
                     , mtl
                     , directory
+                    , split ^>=0.2.5
                     , tinyapl
     if os(linux) || os(darwin)
         build-depends:edited

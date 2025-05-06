@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, LambdaCase, OverloadedStrings #-}
+{-# LANGUAGE CPP, LambdaCase, OverloadedStrings, TemplateHaskell #-}
 
 #if defined(unix_HOST_OS) || defined(__unix___HOST_OS) || defined(__unix_HOST_OS) || defined(linux_HOST_OS) || defined(__linux___HOST_OS) || defined(__linux_HOST_OS) || defined(darwin_HOST_OS)
 #define is_linux 1
@@ -27,8 +27,10 @@ import System.IO
 import Data.IORef
 import Data.Maybe
 import Data.List
+import Data.List.Split
 import System.Info
 import System.Exit
+import Control.Arrow
 import Control.DeepSeq
 import Control.Exception (Exception(displayException))
 import System.Directory
@@ -39,6 +41,9 @@ import qualified System.Console.Edited as E
 
 defaultPrefixKey :: String
 defaultPrefixKey = "`"
+
+defaultKeymap :: String
+defaultKeymap = "us-intl"
 
 readImportFile :: FilePath -> St String
 readImportFile path = liftToSt $ readFile path
@@ -85,6 +90,8 @@ cli = do
         die "Prefix key was not a singular key, bailing...")
   let [prefixKey] = prefixKeyS -- SAFETY: We just checked its length is exactly 1
 
+  let keymap = fromMaybe defaultKeymap $ listToMaybe $ mapMaybe (stripPrefix "-keymap") args
+
   let context = Context {
       contextScope = scope
     , contextQuads = core <> ffiQuads <> quadsFromReprs [ makeSystemInfo os arch False bigEndian, file, TinyAPL.CLI.stdin ] [ makeImport readImportFile Nothing ] [] []
@@ -100,7 +107,7 @@ cli = do
     , contextPrimitives = P.primitives }
 
   case filter (not . isPrefixOf "-") args of
-    []     -> repl context prefixKey
+    []     -> repl context prefixKey keymap
     [path] -> do
       code <- F.readUtf8 path
       void $ runCode False path code context
@@ -121,207 +128,20 @@ runCode output file code context = do
         liftToSt $ putStrLn str
   pure context'
 
-singleCharacters :: [(Char, Char)]
-singleCharacters =
-  [ ('1', '¨')
-  , ('2', '¯')
-  , ('4', '≤')
-  , ('3', '˝')
-  , ('5', '⬚')
-  , ('6', '≥')
-  , ('7', '⌽')
-  , ('8', '≠')
-  , ('9', '∨')
-  , ('0', '∧')
-  , ('-', '×')
-  , ('=', '÷')
-  , ('q', '↗')
-  , ('w', '⍵')
-  , ('e', '∊')
-  , ('r', '⍴')
-  , ('t', '⊞')
-  , ('y', '↑')
-  , ('u', '↓')
-  , ('i', '⍳')
-  , ('o', '○')
-  , ('p', '◡')
-  , ('[', '←')
-  , (']', '→')
-  , ('a', '⍺')
-  , ('s', '⌈')
-  , ('d', '⌊')
-  , ('f', '⍛')
-  , ('g', '∇')
-  , ('h', '∆')
-  , ('j', '∘')
-  , ('k', '⎊')
-  , ('l', '⎕')
-  , (';', '⍎')
-  , ('\'', '⍕')
-  , ('\\', '⊢')
-  , ('z', '⊂')
-  , ('x', '⊃')
-  , ('c', '∩')
-  , ('v', '∪')
-  , ('b', '⊥')
-  , ('n', '⊤')
-  , ('m', '«')
-  , (',', '⍪')
-  , ('.', '∙')
-  , ('/', '⌿')
-  , (' ', '‿')
-  
-  , ('~', '⍨')
-  , ('!', '⨳')
---, ('@', ' ')
-  , ('#', '⍒')
-  , ('$', '⍋')
-  , ('%', '≈')
-  , ('^', '⍉')
---, ('&', ' ')
-  , ('*', '⍣')
-  , ('(', '⍱')
-  , (')', '⍲')
-  , ('_', '⊗')
-  , ('+', '⊕')
---, ('Q', ' ')
-  , ('W', '⍹')
-  , ('E', '⍷')
-  , ('R', '√')
-  , ('T', '⍨')
-  , ('Y', '↟')
-  , ('U', '↡')
-  , ('I', '⍸')
-  , ('O', '⍥')
-  , ('P', '◠')
-  , ('{', '⟨')
-  , ('}', '⟩')
-  , ('A', '⍶')
-  , ('S', '§')
-  , ('D', '⸠')
-  , ('F', '∡')
-  , ('G', '⍢')
-  , ('H', '⍙')
-  , ('J', '⍤')
-  , ('K', '⌸')
-  , ('L', '⌷')
-  , (':', '≡')
-  , ('"', '≢')
-  , ('|', '⊣')
-  , ('Z', '⊆')
-  , ('X', '⊇')
-  , ('C', '⍝')
-  , ('V', '⁖')
-  , ('B', '∵')
-  , ('N', '·')
-  , ('M', '»')
-  , ('<', 'ᑈ')
-  , ('>', 'ᐵ')
---, ('?', ' ')
-  ]
+singleCharacters :: String -> IO (Either String [(Char, Char)])
+singleCharacters variant = do
+  contents <- readFile ("app/keymaps/" ++ variant ++ ".keymap")
+  let sections = splitOn (singleton ",") $ filter (not . isPrefixOf "--") $ lines contents
+  if length sections /= 3 then pure (Left "Invalid keymap file selected")
+  else pure $ Right $ map elemsOfLine $ lines $ head sections
+     where elemsOfLine l = (head $ splitOn "\t" l, last $ splitOn "\t" l)
 
-doubleCharacters :: [(Char, Char)]
-doubleCharacters =
-  [ ('`', '⋄')
---, ('1', ' ')
---, ('2', ' ')
---, ('3', ' ')
-  , ('4', '⊴')
-  , ('5', '⤺')
-  , ('6', '⊵')
---, ('7', ' ')
-  , ('8', '⍟')
-  , ('9', '∻')
-  , ('0', '⍬')
-  , ('-', '⸚')
-  , ('=', '⌹')
-  , ('q', '⇾')
---, ('w', ' ')
-  , ('e', '⋵')
-  , ('r', 'ϼ')
-  , ('t', '߹')
-  , ('y', 'ᓚ')
-  , ('u', 'ᓗ')
-  , ('i', '…')
-  , ('o', '⍜')
-  , ('p', '⏨')
-  , ('[', '⦅')
-  , (']', '⦆')
-  , ('a', 'ɛ')
-  , ('s', '↾')
-  , ('d', '⇂')
-  , ('f', '∠')
-  , ('g', '⫇')
-  , ('h', '⊸')
-  , ('j', 'ᴊ')
---, ('k', ' ')
---, ('l', ' ')
-  , (';', '⍮')
-  , ('\'', '⍘')
-  , ('\\', '⊩')
-  , ('z', '⊏')
-  , ('x', '⊐')
-  , ('c', '⟃')
-  , ('v', '⫤')
-  , ('b', '⇇')
-  , ('n', '↚')
-  , ('m', '↩')
-  , (',', '⊲')
-  , ('.', '⊳')
---, ('/', ' ')
-  , (' ', '`')
-  
-  , ('~', '⌺')
-  , ('!', '⑴')
---, ('@', ' ')
---, ('#', ' ')
---, ('$', ' ')
---, ('%', ' ')
---, ('^', ' ')
---, ('&', ' ')
-  , ('*', '∞')
-  , ('(', '⦋')
-  , (')', '⦌')
-  , ('_', 'ⵧ')
-  , ('+', '⧺')
-  , ('Q', '⇽')
---, ('W', ' ')
-  , ('E', '⋷')
-  , ('R', 'ℜ')
-  , ('T', '‥')
-  , ('Y', '⥽')
-  , ('U', '⥼')
-  , ('I', 'ℑ')
---, ('O', ' ')
-  , ('P', '⌓')
-  , ('{', '⦃')
-  , ('}', '⦄')
---, ('A', ' ')
---, ('S', ' ')
-  , ('D', '⩔')
---, ('F', ' ')
---, ('G', ' ')
-  , ('H', '⟜')
---, ('J', ' ')
---, ('K', ' ')
---, ('L', ' ')
-  , (':', '⍠')
-  , ('"', '⍞')
-  , ('|', '⫣')
-  , ('Z', 'ᑣ')
-  , ('X', 'ᑒ')
-  , ('C', '⟄')
---, ('V', ' ')
---, ('B', ' ')
-  , ('N', '⩓')
-  , ('M', '⍦')
---, ('<', ' ')
-  , ('>', '■')
-  , ('?', '⍰')
-  ]
+doubleCharacters :: String -> IO (Either String [(Char, Char)])
+doubleCharacters = undefined
 
-repl :: Context -> Char -> IO ()
-repl context prefixKey = let
+
+repl :: Context -> Char -> String -> IO ()
+repl context prefixKey layout = let
 #ifdef is_linux
   go :: E.Edited -> Context -> IO ()
 #else
@@ -374,6 +194,8 @@ repl context prefixKey = let
     el <- E.edited "TinyAPL"
     E.setEditor el E.Emacs
     E.setPrompt' el "      "
+    singleChars <- singleCharacters layout
+    doubleChars <- doubleCharacters layout
     E.addFunction el "prefix" "Prefix for entering TinyAPL glyphs" $ \_ _ -> do
       chM <- E.getOneChar el
       case chM of
@@ -382,14 +204,14 @@ repl context prefixKey = let
           ch2M <- E.getOneChar el
           case ch2M of
             Nothing -> pure E.EOF
-            Just ch2 -> case lookup ch2 doubleCharacters of
+            Just ch2 -> case lookup ch2 doubleChars of
               Just replacement -> do
                 E.insertString el [replacement]
                 pure E.Refresh
               Nothing -> do
                 E.insertString el [ch2]
                 pure E.RefreshBeep
-        Just ch -> case lookup ch singleCharacters of
+        Just ch -> case lookup ch singleChars of
           Just replacement -> do
             E.insertString el [replacement]
             pure E.Refresh
